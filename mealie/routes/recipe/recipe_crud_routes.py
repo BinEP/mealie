@@ -143,7 +143,7 @@ class RecipeController(BaseRecipeController):
                 domain = domain[4:]
 
             # Check if domain matches any in the configured list
-            for video_domain in self.settings.VIDEO_IMPORT_DOMAINS:
+            for video_domain in self.settings.VIDEO_IMPORT_DOMAINS_LIST:
                 video_domain_lower = video_domain.lower()
                 # Remove 'www.' from configured domain too
                 if video_domain_lower.startswith("www."):
@@ -173,7 +173,7 @@ class RecipeController(BaseRecipeController):
         """Takes in a URL and attempts to scrape data and load it into the database"""
 
         # Check if URL domain matches video import domains
-        if self.settings.VIDEO_IMPORT_DOMAINS and self._should_use_video_import(req.url):
+        if self.settings.VIDEO_IMPORT_DOMAINS_LIST and self._should_use_video_import(req.url):
             return await self.parse_recipe_video_url(req, translate_language)
 
         return await self._create_recipe_from_web(req)
