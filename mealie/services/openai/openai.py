@@ -235,3 +235,47 @@ class OpenAIService(BaseService):
             return response_schema.parse_openai_response(response_text)
         except Exception as e:
             raise Exception(f"OpenAI Request Failed. {e.__class__.__name__}: {e}") from e
+
+    async def transcribe_audio(self, file_path: Path | str) -> str | None:
+        settings = get_app_settings()
+        if not settings.OPENAI_ENABLE_TRANSCRIPTION_SERVICES:
+            self.logger.warning("OpenAI transcription services are disabled")
+            return None
+
+        client = self.get_client()
+        try:
+            if "whisper" in settings.OPENAI_AUDIO_MODEL.lower():
+                with open(file_path, "rb") as audio_file:
+                    transcript = await client.audio.transcriptions.create(
+                        model=settings.OPENAI_AUDIO_MODEL,
+                        file=audio_file,
+                    )
+                return transcript.text
+
+            # Fallback to Chat Completion for non-Whisper models (e.g. Gemini, GPT-4o-Audio)
+            path_obj = Path(file_path)
+            with open(path_obj, "rb") as audio_file:
+                audio_data = base64.b64encode(audio_file.read()).decode("utf-8")
+
+            file_ext = path_obj.suffix.lstrip(".").lower()
+
+            response = await client.chat.completions.create(
+                model=settings.OPENAI_AUDIO_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Transcribe the audio content to text."},
+                            {
+                                "type": "input_audio",
+                                "input_audio": {"data": audio_data, "format": file_ext},
+                            },
+                        ],
+                    }
+                ],
+            )
+            return response.choices[0].message.content
+
+        except Exception as e:
+            self.logger.error(f"AI Transcription Failed: {e}")
+            return None
