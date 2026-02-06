@@ -130,6 +130,33 @@ class RecipeController(BaseRecipeController):
 
         return "recipe_scrapers was unable to scrape this URL"
 
+    def _should_use_video_import(self, url: str) -> bool:
+        """Check if URL domain matches any configured video import domains"""
+        from urllib.parse import urlparse
+
+        try:
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc.lower()
+
+            # Remove 'www.' prefix if present
+            if domain.startswith("www."):
+                domain = domain[4:]
+
+            # Check if domain matches any in the configured list
+            for video_domain in self.settings.VIDEO_IMPORT_DOMAINS:
+                video_domain_lower = video_domain.lower()
+                # Remove 'www.' from configured domain too
+                if video_domain_lower.startswith("www."):
+                    video_domain_lower = video_domain_lower[4:]
+
+                # Check for exact match or subdomain match
+                if domain == video_domain_lower or domain.endswith("." + video_domain_lower):
+                    return True
+
+            return False
+        except Exception:
+            return False
+
     @router.post("/create/html-or-json", status_code=201)
     async def create_recipe_from_html_or_json(self, req: ScrapeRecipeData):
         """Takes in raw HTML or a https://schema.org/Recipe object as a JSON string and parses it like a URL"""
@@ -140,8 +167,14 @@ class RecipeController(BaseRecipeController):
         return await self._create_recipe_from_web(req)
 
     @router.post("/create/url", status_code=201, response_model=str)
-    async def parse_recipe_url(self, req: ScrapeRecipe):
+    async def parse_recipe_url(
+        self, req: ScrapeRecipe, translate_language: str | None = Query(None, alias="translateLanguage")
+    ):
         """Takes in a URL and attempts to scrape data and load it into the database"""
+
+        # Check if URL domain matches video import domains
+        if self.settings.VIDEO_IMPORT_DOMAINS and self._should_use_video_import(req.url):
+            return await self.parse_recipe_video_url(req, translate_language)
 
         return await self._create_recipe_from_web(req)
 

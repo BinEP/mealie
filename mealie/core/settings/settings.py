@@ -407,6 +407,12 @@ class AppSettings(AppLoggingSettings):
     """Whether to enable image-related features in OpenAI"""
     OPENAI_ENABLE_TRANSCRIPTION_SERVICES: bool = True
     """Whether to enable audio transcription features in OpenAI"""
+    VIDEO_IMPORT_DOMAINS: list[str] = ["youtube.com", "youtu.be", "tiktok.com", "instagram.com"]
+    """
+    List of domains that should automatically use video import flow.
+    URLs from these domains will be processed as videos instead of web scraping.
+    Example: ["youtube.com", "youtu.be", "tiktok.com", "instagram.com"]
+    """
     OPENAI_WORKERS: int = 2
     """
     Number of OpenAI workers per request. Higher values may increase
@@ -426,6 +432,20 @@ class AppSettings(AppLoggingSettings):
     Path to a folder containing custom prompt files;
     files are individually optional, each prompt name will fall back to the default if no custom file exists
     """
+
+    @field_validator("VIDEO_IMPORT_DOMAINS", mode="before")
+    @classmethod
+    def parse_video_domains(cls, v: Any) -> list[str]:
+        """Parse VIDEO_IMPORT_DOMAINS from comma-separated string or list"""
+        if isinstance(v, str):
+            # Handle comma-separated string
+            if not v.strip():
+                return []
+            return [domain.strip() for domain in v.split(",") if domain.strip()]
+        elif isinstance(v, list):
+            # Already a list, just strip whitespace from each item
+            return [str(domain).strip() for domain in v if str(domain).strip()]
+        return []
 
     @property
     def OPENAI_FEATURE(self) -> FeatureDetails:
