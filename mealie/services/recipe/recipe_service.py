@@ -631,12 +631,21 @@ class OpenAIRecipeService(RecipeServiceBase):
                         sub_path = potential_path
                         break
 
+                # Get all available thumbnails
+                thumbnails = info.get("thumbnails", [])
+                thumbnail_urls = [t["url"] for t in thumbnails if t.get("url")]
+                
+                # Fallback to single thumbnail if thumbnails list is empty
+                if not thumbnail_urls and info.get("thumbnail"):
+                    thumbnail_urls = [info.get("thumbnail")]
+
                 return {
                     "audio": f"{output_template}.mp3",
                     "subtitle": sub_path,
                     "title": info.get("title"),
                     "description": info.get("description"),
                     "thumbnail": info.get("thumbnail"),
+                    "thumbnails": thumbnail_urls,
                 }
         except exceptions.VideoDownloadError:
             raise
@@ -738,6 +747,17 @@ class OpenAIRecipeService(RecipeServiceBase):
                 raise exceptions.OpenAIServiceError("No transcription returned from OpenAI")
             video_data["transcription"] = transcription
 
+        # Select best thumbnail using AI if multiple are available
+        best_thumbnail = video_data["thumbnail"]
+        if video_data.get("thumbnails") and len(video_data["thumbnails"]) > 1:
+            try:
+                selected = await openai_service.select_best_thumbnail(video_data["thumbnails"])
+                if selected:
+                    best_thumbnail = selected
+                    self.logger.info(f"Selected best thumbnail from {len(video_data['thumbnails'])} options")
+            except Exception as e:
+                self.logger.warning(f"Failed to select best thumbnail, using default: {e}")
+
         self.logger.debug(f"Transcription: {video_data['transcription'][:200]}...")
         prompt = openai_service.get_prompt(
             "recipes.parse-recipe-video",
@@ -746,7 +766,7 @@ class OpenAIRecipeService(RecipeServiceBase):
         message = (
             f"Please extract the recipe from the video provided."
             f"the video is titled '{video_data['title']}' and has the description: {video_data['description']}.\n"
-            f"here is the thumbnail for the video: {video_data['thumbnail']}\n"
+            f"here is the thumbnail for the video: {best_thumbnail}\n"
             f"Here is the transcription of the audio from the video:\n{video_data['transcription']}\n"
             "There should be exactly one recipe."
         )
@@ -762,5 +782,13 @@ class OpenAIRecipeService(RecipeServiceBase):
             raise exceptions.OpenAIServiceError("OpenAI returned an empty response when extracting recipe")
 
         recipe = self._convert_recipe(response)
+        
+        # Add video URL to recipe description
+        video_link = f"\n\n---\n**Source Video:** {video_url}"
+        if recipe.description:
+            recipe.description += video_link
+        else:
+            recipe.description = video_link.strip()
+            
         self.logger.info(f"Successfully extracted recipe from video: {video_data['title']}")
-        return recipe, video_data.get("thumbnail")
+        return recipe, best_thumbnail

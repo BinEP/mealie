@@ -279,3 +279,72 @@ class OpenAIService(BaseService):
         except Exception as e:
             self.logger.error(f"AI Transcription Failed: {e}")
             return None
+
+    async def select_best_thumbnail(self, thumbnail_urls: list[str]) -> str | None:
+        """Select the best thumbnail from a list of URLs using AI vision.
+        
+        Args:
+            thumbnail_urls: List of thumbnail URLs to analyze
+            
+        Returns:
+            The URL of the best thumbnail, or None if selection fails
+        """
+        if not thumbnail_urls:
+            return None
+            
+        if len(thumbnail_urls) == 1:
+            return thumbnail_urls[0]
+            
+        if not self.enable_image_services:
+            self.logger.warning("OpenAI image services are disabled, using first thumbnail")
+            return thumbnail_urls[0]
+            
+        client = self.get_client()
+        
+        try:
+            # Build message content with text and images
+            content = [
+                {
+                    "type": "text",
+                    "text": (
+                        f"You are analyzing thumbnails from a cooking video to select the best one for a recipe. "
+                        f"Please analyze these {len(thumbnail_urls)} thumbnails and return ONLY the index number (0-{len(thumbnail_urls) - 1}) of the thumbnail that:\n"
+                        "1. Shows food most prominently\n"
+                        "2. Has the best visual quality/clarity\n"
+                        "3. Would be most appealing as a recipe thumbnail\n\n"
+                        "Return only a single number (the index), no other text."
+                    ),
+                }
+            ]
+            
+            # Add each thumbnail URL as an image
+            for url in thumbnail_urls:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": url}
+                })
+            
+            response = await client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": content}],
+                max_tokens=10,
+            )
+            
+            selected_text = response.choices[0].message.content.strip()
+            selected_index = int(selected_text)
+            
+            if selected_index < 0 or selected_index >= len(thumbnail_urls):
+                self.logger.warning(
+                    f"AI returned invalid thumbnail index {selected_index}, using first thumbnail"
+                )
+                return thumbnail_urls[0]
+                
+            self.logger.info(
+                f"AI selected thumbnail {selected_index} out of {len(thumbnail_urls)} options"
+            )
+            return thumbnail_urls[selected_index]
+            
+        except Exception as e:
+            self.logger.error(f"Failed to select best thumbnail with AI: {e}")
+            # Fallback to first thumbnail
+            return thumbnail_urls[0]
